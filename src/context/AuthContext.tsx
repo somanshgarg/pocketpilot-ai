@@ -91,6 +91,7 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const [password, setPassword] = useState('password123');
   const [fullName, setFullName] = useState('Alex');
   const [authError, setAuthError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
   if (loading) {
@@ -113,9 +114,9 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    setAuthNotice('');
 
     if (!isSupabaseConfigured || !supabase) {
-      // In guest / offline mode, directly enter default user mode
       enterDemoMode();
       return;
     }
@@ -124,20 +125,61 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: { data: { full_name: fullName } },
         });
+
         if (error) throw error;
+
+        if (data.session) {
+          // Direct login success
+          setAuthNotice('Account created successfully!');
+        } else {
+          // Confirmation required by Supabase project settings
+          setAuthNotice('Account registered! If confirmation is required, check your email, or click "Continue as Guest" to test immediately.');
+        }
       } else {
+        // Try sign in
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (error) throw error;
+
+        if (error) {
+          // If user does not exist yet in Supabase, auto-create the account!
+          if (error.message.toLowerCase().includes('invalid login credentials') || error.message.toLowerCase().includes('user not found')) {
+            console.log('User not found in Supabase Auth. Attempting auto-registration...');
+            const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+              email,
+              password,
+              options: { data: { full_name: email === 'demo@pocketpilot.ai' ? 'Alex' : email.split('@')[0] } },
+            });
+
+            if (signUpError) {
+              // If signup also fails or requires email confirmation, fallback to demo mode gracefully
+              if (email === 'demo@pocketpilot.ai') {
+                enterDemoMode();
+                return;
+              }
+              throw signUpError;
+            }
+
+            if (!signUpData.session) {
+              setAuthNotice('Created new user in Supabase! If email confirmation is enabled in your Supabase Dashboard, please confirm it, or use Guest mode.');
+            }
+          } else {
+            throw error;
+          }
+        }
       }
     } catch (err: any) {
+      // For demo email, automatically fall back to demo mode so the user is never blocked
+      if (email === 'demo@pocketpilot.ai') {
+        enterDemoMode();
+        return;
+      }
       setAuthError(err.message || 'Authentication failed. Please check credentials.');
     } finally {
       setAuthLoading(false);
@@ -173,8 +215,17 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
         >
           {/* Default User Banner */}
           <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-200 space-y-1">
-            <div className="flex items-center gap-1.5 font-bold text-indigo-300">
-              <Key className="w-3.5 h-3.5" /> Default User Credentials
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-bold text-indigo-300">
+                <Key className="w-3.5 h-3.5" /> Quick Demo Login
+              </div>
+              <button
+                type="button"
+                onClick={enterDemoMode}
+                className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 text-[10px] font-bold transition-all"
+              >
+                Instant Access →
+              </button>
             </div>
             <div className="font-mono text-[11px] text-slate-300">
               Email: <strong className="text-white">demo@pocketpilot.ai</strong>
@@ -189,7 +240,11 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
               {isSignUp ? 'Create PostgreSQL Account' : 'Sign in to PostgreSQL DB'}
             </h2>
             <button
-              onClick={() => setIsSignUp(!isSignUp)}
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setAuthError('');
+                setAuthNotice('');
+              }}
               className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
             >
               {isSignUp ? 'Already have an account?' : 'Need an account?'}
@@ -199,6 +254,12 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
           {authError && (
             <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
               {authError}
+            </div>
+          )}
+
+          {authNotice && (
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+              {authNotice}
             </div>
           )}
 
