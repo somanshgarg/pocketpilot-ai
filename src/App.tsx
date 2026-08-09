@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AuthProvider, AuthGate } from './context/AuthContext';
 import { FinanceProvider } from './context/FinanceContext';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
@@ -73,7 +74,7 @@ const MainAppContent: React.FC = () => {
         color: '#334155',
       }}>
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
-          <span>© 2026 <strong className="text-slate-500">PocketPilot AI</strong> · Powered by Google Gemini & Ask Pocky</span>
+          <span>© 2026 <strong className="text-slate-500">PocketPilot AI</strong> · Powered by PostgreSQL & Google Gemini</span>
           <span>INR (₹) · Validated Business Rules</span>
         </div>
       </footer>
@@ -83,9 +84,13 @@ const MainAppContent: React.FC = () => {
 
 export function App() {
   return (
-    <FinanceProvider>
-      <MainAppContent />
-    </FinanceProvider>
+    <AuthProvider>
+      <AuthGate>
+        <FinanceProvider>
+          <MainAppContent />
+        </FinanceProvider>
+      </AuthGate>
+    </AuthProvider>
   );
 }
 

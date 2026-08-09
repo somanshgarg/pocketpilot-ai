@@ -11,8 +11,12 @@ import {
   ShieldAlert,
   Bot,
   X,
+  LogOut,
+  User as UserIcon,
+  Database
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
+import { useAuth } from '../context/AuthContext';
 
 interface NavbarProps {
   activeTab: string;
@@ -22,6 +26,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenAddModal }) => {
   const { activeAlerts } = useFinance();
+  const { user, signOut } = useAuth();
   const [showAlertsDropdown, setShowAlertsDropdown] = useState(false);
   const alertRef = useRef<HTMLDivElement>(null);
 
@@ -46,7 +51,6 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
     { id: 'ai-settings', label: 'AI & Settings', icon: Sparkles },
   ];
 
-  // Mobile bottom bar — limit to 5 most important
   const mobileNavItems = [
     { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
     { id: 'transactions', label: 'History', icon: Receipt },
@@ -74,7 +78,6 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
               role="button"
               aria-label="Go to dashboard"
             >
-              {/* Logo mark */}
               <div className="relative w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0">
                 <div className="w-full h-full rounded-[10px] bg-gradient-to-br from-indigo-500 via-violet-500 to-purple-600 flex items-center justify-center shadow-lg"
                   style={{ boxShadow: '0 4px 16px rgba(99,102,241,0.35)' }}>
@@ -82,9 +85,12 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
                 </div>
               </div>
               <div className="flex flex-col">
-                <span className="text-sm sm:text-base font-extrabold text-white leading-tight tracking-tight">
+                <span className="text-sm sm:text-base font-extrabold text-white leading-tight tracking-tight flex items-center gap-1.5">
                   PocketPilot
-                  <span className="ml-1 text-xs font-bold text-gradient-brand opacity-90">AI</span>
+                  <span className="text-xs font-bold text-gradient-brand opacity-90">AI</span>
+                  <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <Database className="w-2.5 h-2.5" /> Postgres
+                  </span>
                 </span>
                 <span className="text-[10px] text-slate-500 leading-none hidden sm:block">Smart Personal Finance</span>
               </div>
@@ -119,6 +125,24 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
 
             {/* Right Actions */}
             <div className="flex items-center gap-2">
+
+              {/* User Email & Logout */}
+              {user && (
+                <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-[10px] bg-white/5 border border-white/10 text-xs text-slate-300">
+                  <UserIcon className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+                  <span className="truncate max-w-[130px] font-medium" title={user.email || 'User'}>
+                    {user.email || 'Default User'}
+                  </span>
+                  <button
+                    onClick={signOut}
+                    className="ml-1 p-1 hover:bg-white/10 rounded text-slate-400 hover:text-rose-400 transition-colors"
+                    title="Sign Out"
+                    aria-label="Sign out"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
 
               {/* Alert Bell */}
               <div className="relative" ref={alertRef}>
@@ -155,7 +179,6 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
                     role="dialog"
                     aria-label="Budget alerts"
                   >
-                    {/* Header */}
                     <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                       <div className="flex items-center gap-2">
                         <ShieldAlert className="w-4 h-4 text-rose-400" />
@@ -173,7 +196,6 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
                       </div>
                     </div>
 
-                    {/* Content */}
                     <div className="p-3">
                       {activeAlerts.length === 0 ? (
                         <div className="py-4 text-center">
@@ -280,7 +302,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
           );
         })}
 
-        {/* Quick Add — center floating button */}
+        {/* Quick Add */}
         <button
           onClick={onOpenAddModal}
           className="flex flex-col items-center justify-center py-1.5 px-2 min-w-[56px]"

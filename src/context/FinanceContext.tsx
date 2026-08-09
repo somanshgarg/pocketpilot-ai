@@ -9,6 +9,25 @@ import {
   getCurrentMonthYear 
 } from '../utils/initialData';
 import { generateFinancialInsights, testGeminiApiKey, fetchAvailableGeminiModels, type DynamicGeminiModel } from '../services/aiService';
+import { useAuth } from './AuthContext';
+import {
+  getTransactions,
+  createTransaction,
+  updateTransactionDb,
+  deleteTransactionDb,
+  getCategories,
+  createCategory,
+  updateCategoryDb,
+  deleteCategoryDb,
+  getBudget,
+  upsertBudgetDb,
+  getLendingEntries,
+  createLendingEntry,
+  updateLendingStatusDb,
+  deleteLendingEntryDb,
+  getUserSettings,
+  updateUserSettingsDb,
+} from '../lib/db';
 
 interface FinanceContextType {
   transactions: Transaction[];
@@ -18,17 +37,18 @@ interface FinanceContextType {
   settings: AppSettings;
   aiInsight: AIInsight | null;
   activeAlerts: string[];
-  addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
-  updateTransaction: (tx: Transaction) => void;
-  deleteTransaction: (id: string) => void;
-  addCategory: (cat: Omit<Category, 'id'>) => void;
-  updateCategory: (cat: Category) => void;
-  deleteCategory: (id: string) => void;
-  updateBudget: (totalBudget: number, alertThresholds?: number[]) => void;
-  addLendingEntry: (entry: Omit<LendingEntry, 'id' | 'createdAt'>) => void;
-  updateLendingStatus: (id: string, status: 'PENDING' | 'SETTLED') => void;
-  deleteLendingEntry: (id: string) => void;
-  updateSettings: (newSettings: Partial<AppSettings>) => void;
+  isLoadingDb: boolean;
+  addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => Promise<void>;
+  updateTransaction: (tx: Transaction) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
+  addCategory: (cat: Omit<Category, 'id'>) => Promise<void>;
+  updateCategory: (cat: Category) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
+  updateBudget: (totalBudget: number, alertThresholds?: number[]) => Promise<void>;
+  addLendingEntry: (entry: Omit<LendingEntry, 'id' | 'createdAt'>) => Promise<void>;
+  updateLendingStatus: (id: string, status: 'PENDING' | 'SETTLED') => Promise<void>;
+  deleteLendingEntry: (id: string) => Promise<void>;
+  updateSettings: (newSettings: Partial<AppSettings>) => Promise<void>;
   refreshAIInsight: () => Promise<void>;
   testApiKey: (apiKey?: string) => Promise<{ success: boolean; message: string; latencyMs?: number; rawError?: string }>;
   fetchDynamicModels: (apiKey?: string) => Promise<{ success: boolean; models: DynamicGeminiModel[]; message?: string }>;
@@ -38,54 +58,60 @@ interface FinanceContextType {
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 
 export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('pocketpilot_transactions');
-    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
-  });
+  const { user } = useAuth();
+  const userId = user?.id || 'demo-user-id';
 
-  const [categories, setCategories] = useState<Category[]>(() => {
-    const saved = localStorage.getItem('pocketpilot_categories');
-    return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
-  });
-
-  const [budget, setBudget] = useState<MonthlyBudget>(() => {
-    const saved = localStorage.getItem('pocketpilot_budget');
-    return saved ? JSON.parse(saved) : INITIAL_BUDGET;
-  });
-
-  const [lendingEntries, setLendingEntries] = useState<LendingEntry[]>(() => {
-    const saved = localStorage.getItem('pocketpilot_lending');
-    return saved ? JSON.parse(saved) : INITIAL_LENDING;
-  });
-
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('pocketpilot_settings');
-    return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
-  });
+  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
+  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [budget, setBudget] = useState<MonthlyBudget>(INITIAL_BUDGET);
+  const [lendingEntries, setLendingEntries] = useState<LendingEntry[]>(INITIAL_LENDING);
+  const [settings, setSettings] = useState<AppSettings>(INITIAL_SETTINGS);
 
   const [aiInsight, setAiInsight] = useState<AIInsight | null>(null);
   const [activeAlerts, setActiveAlerts] = useState<string[]>([]);
+  const [isLoadingDb, setIsLoadingDb] = useState<boolean>(true);
 
+  // ----------------------------------------------------
+  // Load data from Postgres DB on login / user change
+  // ----------------------------------------------------
   useEffect(() => {
-    localStorage.setItem('pocketpilot_transactions', JSON.stringify(transactions));
-  }, [transactions]);
+    let isMounted = true;
+    setIsLoadingDb(true);
 
-  useEffect(() => {
-    localStorage.setItem('pocketpilot_categories', JSON.stringify(categories));
-  }, [categories]);
+    const loadPostgresData = async () => {
+      try {
+        const [txs, cats, bgt, debts, stg] = await Promise.all([
+          getTransactions(userId),
+          getCategories(userId),
+          getBudget(userId, getCurrentMonthYear()),
+          getLendingEntries(userId),
+          getUserSettings(userId),
+        ]);
 
-  useEffect(() => {
-    localStorage.setItem('pocketpilot_budget', JSON.stringify(budget));
-  }, [budget]);
+        if (isMounted) {
+          setTransactions(txs);
+          setCategories(cats);
+          setBudget(bgt);
+          setLendingEntries(debts);
+          setSettings(stg);
+        }
+      } catch (err) {
+        console.error('Error loading data from Postgres:', err);
+      } finally {
+        if (isMounted) setIsLoadingDb(false);
+      }
+    };
 
-  useEffect(() => {
-    localStorage.setItem('pocketpilot_lending', JSON.stringify(lendingEntries));
-  }, [lendingEntries]);
+    loadPostgresData();
 
-  useEffect(() => {
-    localStorage.setItem('pocketpilot_settings', JSON.stringify(settings));
-  }, [settings]);
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
 
+  // ----------------------------------------------------
+  // Calculate Alerts & AI Insights
+  // ----------------------------------------------------
   useEffect(() => {
     const currentMonth = getCurrentMonthYear();
     const currentMonthExpenses = transactions.filter(t => t.type === 'EXPENSE' && t.date.startsWith(currentMonth));
@@ -119,7 +145,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const refreshAIInsight = async () => {
     const activeModel = settings.selectedModel || 'gemini-3.5-flash-lite';
-
     const res = await generateFinancialInsights(
       transactions, 
       budget, 
@@ -132,13 +157,12 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const testApiKey = async (apiKey?: string) => {
     const activeModel = settings.selectedModel || 'gemini-3.5-flash-lite';
-
     const res = await testGeminiApiKey(
       apiKey || settings.geminiApiKey, 
       activeModel
     );
     if (res.usedModel && res.usedModel !== settings.selectedModel) {
-      updateSettings({ selectedModel: res.usedModel });
+      await updateSettings({ selectedModel: res.usedModel });
     }
     return res;
   };
@@ -147,66 +171,68 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return await fetchAvailableGeminiModels(apiKey || settings.geminiApiKey);
   };
 
-  const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTx: Transaction = {
-      ...tx,
-      id: 'tx-' + Date.now(),
-      createdAt: new Date().toISOString()
-    };
+  // ----------------------------------------------------
+  // MUTATIONS (Update Local State & Persist to Postgres)
+  // ----------------------------------------------------
+  const addTransaction = async (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
+    const newTx = await createTransaction(userId, tx);
     setTransactions(prev => [newTx, ...prev]);
   };
 
-  const updateTransaction = (updatedTx: Transaction) => {
+  const updateTransaction = async (updatedTx: Transaction) => {
     setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
+    await updateTransactionDb(userId, updatedTx);
   };
 
-  const deleteTransaction = (id: string) => {
+  const deleteTransaction = async (id: string) => {
     setTransactions(prev => prev.filter(t => t.id !== id));
+    await deleteTransactionDb(userId, id);
   };
 
-  const addCategory = (cat: Omit<Category, 'id'>) => {
-    const newCat: Category = {
-      ...cat,
-      id: 'cat-' + Date.now()
-    };
+  const addCategory = async (cat: Omit<Category, 'id'>) => {
+    const newCat = await createCategory(userId, cat);
     setCategories(prev => [...prev, newCat]);
   };
 
-  const updateCategory = (updatedCat: Category) => {
+  const updateCategory = async (updatedCat: Category) => {
     setCategories(prev => prev.map(c => c.id === updatedCat.id ? updatedCat : c));
+    await updateCategoryDb(userId, updatedCat);
   };
 
-  const deleteCategory = (id: string) => {
+  const deleteCategory = async (id: string) => {
     setCategories(prev => prev.filter(c => c.id !== id));
+    await deleteCategoryDb(userId, id);
   };
 
-  const updateBudget = (totalBudget: number, alertThresholds?: number[]) => {
-    setBudget(prev => ({
-      ...prev,
+  const updateBudget = async (totalBudget: number, alertThresholds?: number[]) => {
+    const updated: MonthlyBudget = {
+      ...budget,
       totalBudget,
-      alertThresholds: alertThresholds || prev.alertThresholds
-    }));
+      alertThresholds: alertThresholds || budget.alertThresholds,
+    };
+    setBudget(updated);
+    await upsertBudgetDb(userId, updated);
   };
 
-  const addLendingEntry = (entry: Omit<LendingEntry, 'id' | 'createdAt'>) => {
-    const newEntry: LendingEntry = {
-      ...entry,
-      id: 'lend-' + Date.now(),
-      createdAt: new Date().toISOString()
-    };
+  const addLendingEntry = async (entry: Omit<LendingEntry, 'id' | 'createdAt'>) => {
+    const newEntry = await createLendingEntry(userId, entry);
     setLendingEntries(prev => [newEntry, ...prev]);
   };
 
-  const updateLendingStatus = (id: string, status: 'PENDING' | 'SETTLED') => {
+  const updateLendingStatus = async (id: string, status: 'PENDING' | 'SETTLED') => {
     setLendingEntries(prev => prev.map(e => e.id === id ? { ...e, status } : e));
+    await updateLendingStatusDb(userId, id, status);
   };
 
-  const deleteLendingEntry = (id: string) => {
+  const deleteLendingEntry = async (id: string) => {
     setLendingEntries(prev => prev.filter(e => e.id !== id));
+    await deleteLendingEntryDb(userId, id);
   };
 
-  const updateSettings = (newSettings: Partial<AppSettings>) => {
-    setSettings(prev => ({ ...prev, ...newSettings }));
+  const updateSettings = async (newSettings: Partial<AppSettings>) => {
+    const updated = { ...settings, ...newSettings };
+    setSettings(updated);
+    await updateUserSettingsDb(userId, newSettings);
   };
 
   const resetToSampleData = () => {
@@ -226,6 +252,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       settings,
       aiInsight,
       activeAlerts,
+      isLoadingDb,
       addTransaction,
       updateTransaction,
       deleteTransaction,
